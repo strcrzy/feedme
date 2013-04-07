@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 require './common'
 class Runner
   def initialize(filename)
@@ -22,10 +24,20 @@ if __FILE__ == $0
     runner = Runner.new(ARGV[0])
     runner.start
   end
-  @sidekiq_thin = Process.spawn "thin start"
-  Signal.trap("INT") { Process.kill "INT", @sidekiq_thin; Process.exit }
-  Signal.trap("KILL") { Process.kill "KILL", @sidekiq_thin; Process.exit }
+
+  @thin = Process.spawn "thin start", out: '/dev/null'
+  @worker = Process.spawn "sidekiq -q scraper -q feeder -r ./common.rb -c 25", out: '/dev/null'
   
+  def shut_down 
+    puts "shutting down"
+    Process.kill "KILL", @worker
+    Process.kill "KILL", @thin
+    Process.exit
+  end
+ 
+  Signal.trap("INT") { shut_down }
+  Signal.trap("KILL") { shut_down }
+
   redis do |r|
     while output = JSON.parse(r.blpop('output').last) 
       puts "#{output[0]} - #{output[1]} - #{output[2]}"
